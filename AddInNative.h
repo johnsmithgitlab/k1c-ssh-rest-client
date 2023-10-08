@@ -119,21 +119,15 @@ private:
     ssh_session session;
     char *buffer;
     int buffer_size;
-
-    //int status_code;
-    //char *body;
+    int request_size;
+    int response_size;
 
     bool OpenSession(tVariant* paParams, const long lSizeArray);
     bool CloseSession(void);
     bool VerifyHost(tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray);
     bool AuthenticateByPassword(tVariant* paParams, const long lSizeArray);
-//    bool SendGetRequest(tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray);
-//    bool SendPostRequest(tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray);
-//    bool SendRequest(char * pstrMethod, tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray);
     bool SetBufferSize(tVariant* paParams, const long lSizeArray);
-
-    // new functions
-    // general request
+    // general functions
     bool SetRequestFromBinaryData(tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray);
     bool SetRequestFromString(tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray);
     bool SendRequest(tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray);
@@ -147,12 +141,5 @@ private:
     bool SendHttpRequest(tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray);
     bool GetBodyAsBinaryData(tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray);
     bool GetHttpHeader(tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray);
-
-
-
-    int request_size;
-    int response_size;
-
-    //int body_size;
 };
 #endif //__ADDINNATIVE_H__
