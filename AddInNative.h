@@ -1,4 +1,20 @@
-﻿#ifndef __ADDINNATIVE_H__
+﻿//    This is a part of k-) stack.
+//    Copyright (C) 2023  Yury Deshin, j.deshin@hotmail.com
+//
+//    This program is free software: you can redistribute it and/or modify
+//    it under the terms of the GNU Affero General Public License as
+//    published by the Free Software Foundation, either version 3 of the
+//    License, or (at your option) any later version.
+//
+//    This program is distributed in the hope that it will be useful,
+//    but WITHOUT ANY WARRANTY; without even the implied warranty of
+//    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//    GNU Affero General Public License for more details.
+//
+//    You should have received a copy of the GNU Affero General Public License
+//    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+#ifndef __ADDINNATIVE_H__
 #define __ADDINNATIVE_H__
 
 #include "include/ComponentBase.h"
@@ -7,7 +23,6 @@
 
 
 #include "include/libssh/libssh.h"
-//#include <libssh2_sftp.h>
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -45,6 +60,8 @@ public:
         eCloseSessionMethod,
         eVerifyHostMethod,
         eAuthenticateByPasswordMethod,
+        eAuthenticateByKeyMethod,
+        eAuthenticateByKeyBase64Method,
 
         eSetBufferSizeMethod,
         eSetRequestFromBinaryDataMethod,
@@ -126,6 +143,8 @@ private:
     bool CloseSession(void);
     bool VerifyHost(tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray);
     bool AuthenticateByPassword(tVariant* paParams, const long lSizeArray);
+    bool AuthenticateByKey(tVariant* paParams, const long lSizeArray);
+    bool AuthenticateByKeyBase64(tVariant* paParams, const long lSizeArray);
     bool SetBufferSize(tVariant* paParams, const long lSizeArray);
     // general functions
     bool SetRequestFromBinaryData(tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray);

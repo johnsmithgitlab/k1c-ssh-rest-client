@@ -1,8 +1,4 @@
-﻿/*
- * include для libssh
- */
-
-#include <sys/socket.h>
+﻿#include <sys/socket.h>
 #include <netinet/in.h>
 #include <sys/select.h>
 #include <unistd.h>
@@ -19,9 +15,6 @@
 #include <uchar.h>
 #include <codecvt>
 #include <locale>
-/*
- * ! include для libssh
- */
 
 #include <map>
 #include <string>
@@ -67,6 +60,8 @@ static const wchar_t *g_MethodNames[] = {
     L"CloseSession",
     L"VerifyHost",
     L"AuthenticateByPassword",
+    L"AuthenticateByKey",
+    L"AuthenticateByKeyBase64",
 
     L"SetBufferSize",
     L"SetRequestFromBinaryData",
@@ -98,6 +93,8 @@ static const wchar_t *g_MethodNamesRu[] = {
     L"ЗакрытьСессию",
     L"ПроверитьСервер",
     L"АутентифицироватьсяПоПаролю",
+    L"АутентифицироватьсяПоКлючу",
+    L"АутентифицироватьсяПоКлючуBase64",
 
     L"УстановитьРазмерБуфера",
     L"УстановитьЗапросИзДвоичныхДанных",
@@ -234,6 +231,86 @@ bool CAddInNative::AuthenticateByPassword(tVariant* paParams, const long lSizeAr
         return false;
     }
     return true;
+}
+//---------------------------------------------------------------------------//
+bool CAddInNative::AuthenticateByKey(tVariant* paParams, const long lSizeArray)
+{
+    char *key_file_name = ::conv_wchar16_t_to_char(paParams[0].pwstrVal);
+    ssh_key *privkey;
+
+    int res = ssh_pki_import_privkey_file(key_file_name, NULL, NULL, NULL, privkey);
+
+    if(res == SSH_EOF) {
+        const char *err_str = "The file doesn't exist or permission denied";
+        std::wstring werr_str = std::wstring(err_str, err_str + strlen(err_str));
+        addError(2004, L"LibSSH", werr_str.data(), 2004);
+
+        if(privkey != NULL)
+            ssh_key_free(*privkey);
+
+        return false;
+    }
+
+    if(res != SSH_OK) {
+        const char *err_str = "Error importing key file";
+        std::wstring werr_str = std::wstring(err_str, err_str + strlen(err_str));
+        addError(2004, L"LibSSH", werr_str.data(), 2004);
+
+        if(privkey != NULL)
+            ssh_key_free(*privkey);
+
+        return false;
+    }
+
+    res = ssh_userauth_publickey(session, NULL, *privkey);
+
+    if(res != SSH_AUTH_SUCCESS) {
+        const char * err_str = ssh_get_error(session);
+        ssh_key_free(*privkey);
+        std::wstring werr_str = std::wstring(err_str, err_str + strlen(err_str));
+        addError(2004, L"LibSSH", werr_str.data(), 2004);
+        ::disconnect_ssh_session(session);
+        return false;
+    }
+
+    ssh_key_free(*privkey);
+    return true;
+}
+//---------------------------------------------------------------------------//
+bool CAddInNative::AuthenticateByKeyBase64(tVariant* paParams, const long lSizeArray)
+{
+    ssh_key privkey = NULL;
+    char *key_buff = (char *)malloc(paParams[0].strLen + 1);
+    memcpy(key_buff, paParams[0].pstrVal, paParams[0].strLen);
+    key_buff[paParams[0].strLen] = 0;
+
+    int res = ssh_pki_import_privkey_base64(key_buff, NULL, NULL, NULL, &privkey);
+    free(key_buff);
+
+    if(res != SSH_OK) {
+        const char *err_str = "Error importing key";
+        std::wstring werr_str = std::wstring(err_str, err_str + strlen(err_str));
+        addError(2004, L"LibSSH", werr_str.data(), 2004);
+
+        if (privkey != NULL)
+            ssh_key_free(privkey);
+
+        return false;
+    }
+
+   res = ssh_userauth_publickey(session, NULL, privkey);
+
+   if(res != SSH_AUTH_SUCCESS) {
+       const char * err_str = ssh_get_error(session);
+       ssh_key_free(privkey);
+       std::wstring werr_str = std::wstring(err_str, err_str + strlen(err_str));
+       addError(2004, L"LibSSH", werr_str.data(), 2004);
+       ::disconnect_ssh_session(session);
+       return false;
+   }
+
+   ssh_key_free(privkey);
+   return true;
 }
 //---------------------------------------------------------------------------//
 bool CAddInNative::GetBodyAsBinaryData(tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray)
@@ -379,7 +456,7 @@ bool CAddInNative::SetBodyFromBinaryData(tVariant* pvarRetValue, tVariant* paPar
     TV_VT(pvarRetValue) = VTYPE_I4;
 
     if (TV_VT(&paParams[0]) == VTYPE_BLOB && paParams[0].strLen > 0) {
-        int nbytes = sprintf(buffer + request_size, "Content-Length: %d\r\n\r\n", paParams[1].strLen);
+        int nbytes = sprintf(buffer + request_size, "Content-Length: %d\r\n\r\n", paParams[0].strLen);
         request_size += nbytes;
         memcpy(buffer + request_size, paParams[0].pstrVal, paParams[0].strLen);
         request_size += paParams[0].strLen;
@@ -408,8 +485,14 @@ bool CAddInNative::SetRequestFromBinaryData(tVariant* pvarRetValue, tVariant* pa
         TV_I4(pvarRetValue) = paParams[0].strLen;
     }
     else {
-        addError(2010, L"LibSSH", L"Cannot set request", 2010);
-        return false;
+        if (TV_VT(&paParams[0]) == VTYPE_EMPTY || (TV_VT(&paParams[0]) == VTYPE_BLOB && paParams[0].strLen == 0)) {
+            TV_I4(pvarRetValue) = 0;
+            return true;
+        }
+        else {
+            addError(2010, L"LibSSH", L"Cannot set request", 2010);
+            return false;
+        }
     }
 
     return true;
@@ -978,6 +1061,10 @@ long CAddInNative::GetNParams(const long lMethodNum)
             return 0;
         case eAuthenticateByPasswordMethod:
             return 2;
+        case eAuthenticateByKeyMethod:
+            return 1;
+        case eAuthenticateByKeyBase64Method:
+            return 1;
         case eSetBufferSizeMethod:
             return 1;
         case eSetRequestFromBinaryDataMethod:
@@ -1037,6 +1124,10 @@ bool CAddInNative::HasRetVal(const long lMethodNum)
             return true;
         case eAuthenticateByPasswordMethod:
             return false;
+        case eAuthenticateByKeyMethod:
+            return false;
+        case eAuthenticateByKeyBase64Method:
+            return false;
         case eSetBufferSizeMethod:
             return false;
         case eSetRequestFromBinaryDataMethod:
@@ -1080,6 +1171,10 @@ bool CAddInNative::CallAsProc(const long lMethodNum,
             return CloseSession();
         case eAuthenticateByPasswordMethod:
             return AuthenticateByPassword(paParams, lSizeArray);
+        case eAuthenticateByKeyMethod:
+            return AuthenticateByKey(paParams, lSizeArray);
+        case eAuthenticateByKeyBase64Method:
+            return AuthenticateByKeyBase64(paParams, lSizeArray);
         case eSetBufferSizeMethod:
             return SetBufferSize(paParams, lSizeArray);
         default:
