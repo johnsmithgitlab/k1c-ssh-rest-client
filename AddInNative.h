@@ -1,4 +1,26 @@
-﻿#ifndef __ADDINNATIVE_H__
+﻿/*
+ * This file is part of k-) stack
+ * Copyright (c) 2023 by Yury Deshin j.deshin@hotmail.com
+ *
+ * This work uses SSH Library (libssh) https://www.libssh.org/
+ * This work based on the external component template source code, written by 1C Company
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+ */
+
+#ifndef __ADDINNATIVE_H__
 #define __ADDINNATIVE_H__
 
 #include "include/ComponentBase.h"
@@ -7,7 +29,6 @@
 
 
 #include "include/libssh/libssh.h"
-//#include <libssh2_sftp.h>
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -45,6 +66,8 @@ public:
         eCloseSessionMethod,
         eVerifyHostMethod,
         eAuthenticateByPasswordMethod,
+        eAuthenticateByKeyMethod,
+        eAuthenticateByKeyBase64Method,
 
         eSetBufferSizeMethod,
         eSetRequestFromBinaryDataMethod,
@@ -119,21 +142,17 @@ private:
     ssh_session session;
     char *buffer;
     int buffer_size;
-
-    //int status_code;
-    //char *body;
+    int request_size;
+    int response_size;
 
     bool OpenSession(tVariant* paParams, const long lSizeArray);
     bool CloseSession(void);
     bool VerifyHost(tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray);
     bool AuthenticateByPassword(tVariant* paParams, const long lSizeArray);
-//    bool SendGetRequest(tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray);
-//    bool SendPostRequest(tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray);
-//    bool SendRequest(char * pstrMethod, tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray);
+    bool AuthenticateByKey(tVariant* paParams, const long lSizeArray);
+    bool AuthenticateByKeyBase64(tVariant* paParams, const long lSizeArray);
     bool SetBufferSize(tVariant* paParams, const long lSizeArray);
-
-    // new functions
-    // general request
+    // general functions
     bool SetRequestFromBinaryData(tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray);
     bool SetRequestFromString(tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray);
     bool SendRequest(tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray);
@@ -147,12 +166,5 @@ private:
     bool SendHttpRequest(tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray);
     bool GetBodyAsBinaryData(tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray);
     bool GetHttpHeader(tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray);
-
-
-
-    int request_size;
-    int response_size;
-
-    //int body_size;
 };
 #endif //__ADDINNATIVE_H__
