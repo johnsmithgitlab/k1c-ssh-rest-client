@@ -9,7 +9,7 @@ foreach(policy CMP0068)
   endif()
 endforeach()
 
-PROJECT(AddInNative CXX)
+PROJECT(SshRestClient CXX)
 
 IF(WIN32)
     ENABLE_LANGUAGE(RC)

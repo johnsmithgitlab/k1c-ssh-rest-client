@@ -1,5 +1,23 @@
 ﻿/*
- * include для libssh
+ * This file is part of k-) stack
+ * Copyright (c) 2023 by Yury Deshin j.deshin@hotmail.com
+ *
+ * This work uses SSH Library (libssh) https://www.libssh.org/
+ * This work based on the external component template source code, written by 1C Company
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
 #include <sys/socket.h>
@@ -19,9 +37,6 @@
 #include <uchar.h>
 #include <codecvt>
 #include <locale>
-/*
- * ! include для libssh
- */
 
 #include <map>
 #include <string>
@@ -67,6 +82,8 @@ static const wchar_t *g_MethodNames[] = {
     L"CloseSession",
     L"VerifyHost",
     L"AuthenticateByPassword",
+    L"AuthenticateByKey",
+    L"AuthenticateByKeyBase64",
 
     L"SetBufferSize",
     L"SetRequestFromBinaryData",
@@ -98,6 +115,8 @@ static const wchar_t *g_MethodNamesRu[] = {
     L"ЗакрытьСессию",
     L"ПроверитьСервер",
     L"АутентифицироватьсяПоПаролю",
+    L"АутентифицироватьсяПоКлючу",
+    L"АутентифицироватьсяПоКлючуBase64",
 
     L"УстановитьРазмерБуфера",
     L"УстановитьЗапросИзДвоичныхДанных",
@@ -115,6 +134,10 @@ static const wchar_t *g_MethodNamesRu[] = {
     L"ПолучитьТелоКакДвоичныеДанные",
     L"ПолучитьТелоКакСтроку"
 };
+//////////////////////////////////////////////////////////////////////
+/*
+ * Функции компоненты
+ */
 
 //---------------------------------------------------------------------------//
 char * conv_wchar16_t_to_char(char16_t *source)
@@ -133,11 +156,6 @@ void disconnect_ssh_session(ssh_session session)
     ssh_disconnect(session);
     ssh_free(session);
 }
-
-/*
- * Функции компоненты
- */
-
 //---------------------------------------------------------------------------//
 bool CAddInNative::OpenSession(tVariant* paParams, const long lSizeArray)
 {
@@ -237,134 +255,85 @@ bool CAddInNative::AuthenticateByPassword(tVariant* paParams, const long lSizeAr
     return true;
 }
 //---------------------------------------------------------------------------//
-/*
-bool CAddInNative::SendGetRequest(tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray)
+bool CAddInNative::AuthenticateByKey(tVariant* paParams, const long lSizeArray)
 {
-    return SendRequest((char *)"GET", pvarRetValue, paParams, lSizeArray);
-    body = NULL;
-    body_size = 0;
+    char *key_file_name = ::conv_wchar16_t_to_char(paParams[0].pwstrVal);
+    ssh_key *privkey;
 
-    ssh_channel forwarding_channel;
-    int rc = SSH_OK;
+    int res = ssh_pki_import_privkey_file(key_file_name, NULL, NULL, NULL, privkey);
 
-    char *url = ::conv_wchar16_t_to_char(paParams->pwstrVal);
-    sprintf(buffer, "GET %s HTTP/1.1\r\nHost: %s\r\n\r\n", url, podmanHost);
-    free(url);
-    int nbytes, nwritten;
+    if(res == SSH_EOF) {
+        const char *err_str = "The file doesn't exist or permission denied";
+        std::wstring werr_str = std::wstring(err_str, err_str + strlen(err_str));
+        addError(2004, L"LibSSH", werr_str.data(), 2004);
 
-    forwarding_channel = ssh_channel_new(session);
-    if (forwarding_channel == NULL) {
-        addError(2005, L"LibSSH", L"Cannot create channel", 2005);
+        if(privkey != NULL)
+            ssh_key_free(*privkey);
+
         return false;
     }
 
-    rc = ssh_channel_open_forward_unix(forwarding_channel, remote_host, local_host, local_port);
-    if (rc != SSH_OK) {
-      ssh_channel_free(forwarding_channel);
-      addError(2006, L"LibSSH", L"Cannot open forwarded socket", 2006);
-      return false;
-    }
+    if(res != SSH_OK) {
+        const char *err_str = "Error importing key file";
+        std::wstring werr_str = std::wstring(err_str, err_str + strlen(err_str));
+        addError(2004, L"LibSSH", werr_str.data(), 2004);
 
-    nbytes = strlen(buffer);
-    nwritten = ssh_channel_write(forwarding_channel,
-                             buffer,
-                             nbytes);
-    if (nbytes != nwritten) {
-      ssh_channel_free(forwarding_channel);
-      addError(2007, L"LibSSH", L"Cannot write to socket", 2007);
-      return false;
-    }
+        if(privkey != NULL)
+            ssh_key_free(*privkey);
 
-    nbytes = 0;
-    char *curr = buffer;
-    nbytes = ssh_channel_read(forwarding_channel, curr, buffer_size, 0);
-    if (nbytes == buffer_size) {
-        ssh_channel_close(forwarding_channel);
-        ssh_channel_free(forwarding_channel);
-        addError(2008, L"LibSSH", L"Buffer overflow", 2008);
-        return false;
-    }
-    // Получаем первую строку
-    curr = strstr(buffer, "\r\n");
-    if(!curr) {
-        ssh_channel_close(forwarding_channel);
-        ssh_channel_free(forwarding_channel);
-        addError(2009, L"LibSSH", L"Bad response format", 2009);
-        return false;
-    }
-    curr[0] = 0;
-
-    // Извлекаем протокол, код статуса, сообщение статуса
-    if (sscanf(buffer, "HTTP/1.1 %d",&status_code) != 1) {
-        ssh_channel_close(forwarding_channel);
-        ssh_channel_free(forwarding_channel);
-        addError(2010, L"LibSSH", L"Bad protocol", 2010);
         return false;
     }
 
-    curr += 2;
-    // Извлекаем область заголовков
-    char *curr_headers = curr;
-    curr = strstr(curr_headers, "\r\n\r\n");
-    curr[0] = 0;
+    res = ssh_userauth_publickey(session, NULL, *privkey);
 
-    // Позиционируемся на начало тела
-    curr += 4;
-    body = curr;
-    // Читаем тело
-    body_size = 0;
-    char *content_length = NULL;
-
-    if (strstr(curr_headers,"Transfer-Encoding: chunked")) {
-        // Читаем и соединяем чанки
-        unsigned int chunk_size = 0;
-        sscanf(curr, "%x\r\n",&chunk_size);
-
-        while(chunk_size) {
-            curr = strstr(curr,"\r\n");
-            curr += 2;
-            memcpy(body + body_size, curr, chunk_size);
-            body_size += chunk_size;
-            curr += chunk_size + 2;
-            sscanf(curr, "%x\r\n",&chunk_size);
-        };
-    }
-    else if ((content_length = strstr(curr_headers,"Content-Length: "))) {
-        sscanf(content_length, "Content-Length: %d", &body_size);
-    }
-    else {
-        ssh_channel_close(forwarding_channel);
-        ssh_channel_free(forwarding_channel);
-        addError(2009, L"LibSSH", L"Cannot determine content length", 2009);
+    if(res != SSH_AUTH_SUCCESS) {
+        const char * err_str = ssh_get_error(session);
+        ssh_key_free(*privkey);
+        std::wstring werr_str = std::wstring(err_str, err_str + strlen(err_str));
+        addError(2004, L"LibSSH", werr_str.data(), 2004);
+        ::disconnect_ssh_session(session);
         return false;
-    };
+    }
 
-    // Возвращаем код состояния
-    TV_VT(pvarRetValue) = VTYPE_I4;
-    TV_I4(pvarRetValue) = status_code;
-
+    ssh_key_free(*privkey);
     return true;
 }
-*/
 //---------------------------------------------------------------------------//
-
-//---------------------------------------------------------------------------//
-/*
-bool CAddInNative::GetBodyAsBinaryData(tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray)
+bool CAddInNative::AuthenticateByKeyBase64(tVariant* paParams, const long lSizeArray)
 {
-    TV_VT(pvarRetValue) = VTYPE_EMPTY;
-    if (m_iMemory && body) {
-        TV_VT(pvarRetValue) = VTYPE_BLOB;
+    ssh_key privkey = NULL;
+    char *key_buff = (char *)malloc(paParams[0].strLen + 1);
+    memcpy(key_buff, paParams[0].pstrVal, paParams[0].strLen);
+    key_buff[paParams[0].strLen] = 0;
 
-        if (m_iMemory->AllocMemory((void**)&(pvarRetValue->pstrVal), body_size)) {
-            memcpy(pvarRetValue->pstrVal, body, body_size);
-            pvarRetValue->strLen = body_size;
-        }
+    int res = ssh_pki_import_privkey_base64(key_buff, NULL, NULL, NULL, &privkey);
+    free(key_buff);
+
+    if(res != SSH_OK) {
+        const char *err_str = "Error importing key";
+        std::wstring werr_str = std::wstring(err_str, err_str + strlen(err_str));
+        addError(2004, L"LibSSH", werr_str.data(), 2004);
+
+        if (privkey != NULL)
+            ssh_key_free(privkey);
+
+        return false;
     }
 
-    return true;
+   res = ssh_userauth_publickey(session, NULL, privkey);
+
+   if(res != SSH_AUTH_SUCCESS) {
+       const char * err_str = ssh_get_error(session);
+       ssh_key_free(privkey);
+       std::wstring werr_str = std::wstring(err_str, err_str + strlen(err_str));
+       addError(2004, L"LibSSH", werr_str.data(), 2004);
+       ::disconnect_ssh_session(session);
+       return false;
+   }
+
+   ssh_key_free(privkey);
+   return true;
 }
-*/
 //---------------------------------------------------------------------------//
 bool CAddInNative::GetBodyAsBinaryData(tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray)
 {
@@ -439,9 +408,7 @@ bool CAddInNative::GetBodyAsBinaryData(tVariant* pvarRetValue, tVariant* paParam
 
     return true;
 }
-
 //---------------------------------------------------------------------------//
-
 bool CAddInNative::SetBufferSize(tVariant* paParams, const long lSizeArray)
 {
     if(buffer)
@@ -450,14 +417,9 @@ bool CAddInNative::SetBufferSize(tVariant* paParams, const long lSizeArray)
     buffer_size = paParams[0].lVal;
     buffer = new char[buffer_size];
 
-    //status_code = 0;
-    //body = NULL;
-    //body_size = 0;
-
     return true;
 }
-
-///// new interface
+//---------------------------------------------------------------------------//
 bool CAddInNative::SetHttpRequestHead(tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray)
 {
     request_size = 0;
@@ -484,7 +446,7 @@ bool CAddInNative::SetHttpRequestHead(tVariant* pvarRetValue, tVariant* paParams
 
     return true;
 }
-
+//---------------------------------------------------------------------------//
 bool CAddInNative::AddHttpHeader(tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray)
 {
     char *http_header_type = ::conv_wchar16_t_to_char(paParams[0].pwstrVal);
@@ -510,13 +472,13 @@ bool CAddInNative::AddHttpHeader(tVariant* pvarRetValue, tVariant* paParams, con
 
     return true;
 }
-
+//---------------------------------------------------------------------------//
 bool CAddInNative::SetBodyFromBinaryData(tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray)
 {
     TV_VT(pvarRetValue) = VTYPE_I4;
 
     if (TV_VT(&paParams[0]) == VTYPE_BLOB && paParams[0].strLen > 0) {
-        int nbytes = sprintf(buffer + request_size, "Content-Length: %d\r\n\r\n", paParams[1].strLen);
+        int nbytes = sprintf(buffer + request_size, "Content-Length: %d\r\n\r\n", paParams[0].strLen);
         request_size += nbytes;
         memcpy(buffer + request_size, paParams[0].pstrVal, paParams[0].strLen);
         request_size += paParams[0].strLen;
@@ -532,7 +494,7 @@ bool CAddInNative::SetBodyFromBinaryData(tVariant* pvarRetValue, tVariant* paPar
 
     return true;
 }
-
+//---------------------------------------------------------------------------//
 bool CAddInNative::SetRequestFromBinaryData(tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray)
 {
     TV_VT(pvarRetValue) = VTYPE_I4;
@@ -545,13 +507,19 @@ bool CAddInNative::SetRequestFromBinaryData(tVariant* pvarRetValue, tVariant* pa
         TV_I4(pvarRetValue) = paParams[0].strLen;
     }
     else {
-        addError(2010, L"LibSSH", L"Cannot set request", 2010);
-        return false;
+        if (TV_VT(&paParams[0]) == VTYPE_EMPTY || (TV_VT(&paParams[0]) == VTYPE_BLOB && paParams[0].strLen == 0)) {
+            TV_I4(pvarRetValue) = 0;
+            return true;
+        }
+        else {
+            addError(2010, L"LibSSH", L"Cannot set request", 2010);
+            return false;
+        }
     }
 
     return true;
 }
-
+//---------------------------------------------------------------------------//
 bool CAddInNative::SetRequestFromString(tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray)
 {
     TV_VT(pvarRetValue) = VTYPE_I4;
@@ -573,7 +541,7 @@ bool CAddInNative::SetRequestFromString(tVariant* pvarRetValue, tVariant* paPara
 
     return true;
 }
-
+//---------------------------------------------------------------------------//
 bool CAddInNative::SendRequest(tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray)
 {
     ssh_channel channel;
@@ -633,7 +601,7 @@ bool CAddInNative::SendRequest(tVariant* pvarRetValue, tVariant* paParams, const
 
     return true;
 }
-
+//---------------------------------------------------------------------------//
 bool CAddInNative::ExecuteCommand(tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray)
 {
     ssh_channel channel;
@@ -706,125 +674,7 @@ bool CAddInNative::ExecuteCommand(tVariant* pvarRetValue, tVariant* paParams, co
 
     return true;
 }
-/*
 //---------------------------------------------------------------------------//
-bool CAddInNative::SendRequest(char * pstrMethod, tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray)
-{
-    body = NULL;
-    body_size = 0;
-    char *curr = buffer;
-
-    char *url = ::conv_wchar16_t_to_char(paParams[0].pwstrVal);
-    if (!strcmp(pstrMethod, "GET")) {
-        sprintf(buffer, "%s %s HTTP/1.1\r\nHost: %s\r\n\r\n", pstrMethod, url, podmanHost);
-    }
-    else if (TV_VT(&paParams[1]) == VTYPE_BLOB && paParams[1].strLen > 0) {
-        sprintf(buffer, "%s %s HTTP/1.1\r\nHost: %s\r\nContent-Length: %d\r\nContent-Type: application/json\r\n\r\n", pstrMethod, url, podmanHost, paParams[1].strLen);
-        curr = curr + strlen(buffer);
-        memcpy(curr, paParams[1].pwstrVal, paParams[1].strLen);
-    }
-    else {
-        sprintf(buffer, "%s %s HTTP/1.1\r\nHost: %s\r\n\r\n", pstrMethod, url, podmanHost);
-    };
-
-    free(url);
-
-    ssh_channel forwarding_channel;
-
-    forwarding_channel = ssh_channel_new(session);
-    if (forwarding_channel == NULL) {
-        addError(2005, L"LibSSH", L"Cannot create channel", 2005);
-        return false;
-    }
-
-    int rc = ssh_channel_open_forward_unix(forwarding_channel, remote_host, local_host, local_port);
-    if (rc != SSH_OK) {
-      ssh_channel_free(forwarding_channel);
-      addError(2006, L"LibSSH", L"Cannot open forwarded socket", 2006);
-      return false;
-    }
-
-    int nbytes = strlen(buffer);
-    int nwritten = ssh_channel_write(forwarding_channel,
-                             buffer,
-                             nbytes);
-    if (nbytes != nwritten) {
-      ssh_channel_free(forwarding_channel);
-      addError(2007, L"LibSSH", L"Cannot write to socket", 2007);
-      return false;
-    }
-
-    nbytes = 0;
-    curr = buffer;
-    nbytes = ssh_channel_read(forwarding_channel, curr, buffer_size, 0);
-    if (nbytes == buffer_size) {
-        ssh_channel_close(forwarding_channel);
-        ssh_channel_free(forwarding_channel);
-        addError(2008, L"LibSSH", L"Buffer overflow", 2008);
-        return false;
-    }
-    // Получаем первую строку
-    curr = strstr(buffer, "\r\n");
-    if(!curr) {
-        ssh_channel_close(forwarding_channel);
-        ssh_channel_free(forwarding_channel);
-        addError(2009, L"LibSSH", L"Bad response format", 2009);
-        return false;
-    }
-    curr[0] = 0;
-
-    // Извлекаем протокол, код статуса, сообщение статуса
-    if (sscanf(buffer, "HTTP/1.1 %d",&status_code) != 1) {
-        ssh_channel_close(forwarding_channel);
-        ssh_channel_free(forwarding_channel);
-        addError(2010, L"LibSSH", L"Bad protocol", 2010);
-        return false;
-    }
-
-    curr += 2;
-    // Извлекаем область заголовков
-    char *curr_headers = curr;
-    curr = strstr(curr_headers, "\r\n\r\n");
-    curr[0] = 0;
-
-    // Позиционируемся на начало тела
-    curr += 4;
-    body = curr;
-    // Читаем тело
-    body_size = 0;
-    char *content_length = NULL;
-
-    if (strstr(curr_headers,"Transfer-Encoding: chunked")) {
-        // Читаем и соединяем чанки
-        unsigned int chunk_size = 0;
-        sscanf(curr, "%x\r\n",&chunk_size);
-
-        while(chunk_size) {
-            curr = strstr(curr,"\r\n");
-            curr += 2;
-            memcpy(body + body_size, curr, chunk_size);
-            body_size += chunk_size;
-            curr += chunk_size + 2;
-            sscanf(curr, "%x\r\n",&chunk_size);
-        };
-    }
-    else if ((content_length = strstr(curr_headers,"Content-Length: "))) {
-        sscanf(content_length, "Content-Length: %d", &body_size);
-    }
-    else {
-        ssh_channel_close(forwarding_channel);
-        ssh_channel_free(forwarding_channel);
-        addError(2009, L"LibSSH", L"Cannot determine content length", 2009);
-        return false;
-    };
-
-    // Возвращаем код состояния
-    TV_VT(pvarRetValue) = VTYPE_I4;
-    TV_I4(pvarRetValue) = status_code;
-
-    return true;
-}
-*/
 bool CAddInNative::SendHttpRequest(tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray)
 {
     if (SendRequest(pvarRetValue, paParams, lSizeArray)) {
@@ -839,7 +689,7 @@ bool CAddInNative::SendHttpRequest(tVariant* pvarRetValue, tVariant* paParams, c
 
     return false;
 }
-
+//---------------------------------------------------------------------------//
 bool CAddInNative::GetHttpHeader(tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray)
 {
     TV_VT(pvarRetValue) = VTYPE_EMPTY;
@@ -871,7 +721,7 @@ bool CAddInNative::GetHttpHeader(tVariant* pvarRetValue, tVariant* paParams, con
 
     return true;
 }
-
+//---------------------------------------------------------------------------//
 bool CAddInNative::GetResponseAsBinaryData(tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray)
 {
     TV_VT(pvarRetValue) = VTYPE_EMPTY;
@@ -887,10 +737,7 @@ bool CAddInNative::GetResponseAsBinaryData(tVariant* pvarRetValue, tVariant* paP
 
     return true;
 }
-
-
 //////////////////////////////////////////////////////////////////////
-
 //---------------------------------------------------------------------------//
 long GetClassObject(const WCHAR_T* wsName, IComponentBase** pInterface)
 {
@@ -946,9 +793,6 @@ CAddInNative::CAddInNative()
 
     request_size = 0;
     response_size = 0;
-
-    //body = NULL;
-    //body_size = 0;
 }
 //---------------------------------------------------------------------------//
 CAddInNative::~CAddInNative()
@@ -981,7 +825,6 @@ long CAddInNative::GetInfo()
 void CAddInNative::Done()
 {
 }
-/////////////////////////////////////////////////////////////////////////////
 // ILanguageExtenderBase
 //---------------------------------------------------------------------------//
 bool CAddInNative::RegisterExtensionAs(WCHAR_T** wsExtensionName)
@@ -1231,25 +1074,6 @@ const WCHAR_T* CAddInNative::GetMethodName(const long lMethodNum, const long lMe
 //---------------------------------------------------------------------------//
 long CAddInNative::GetNParams(const long lMethodNum)
 { 
-    /*
-            eOpenSessionMethod = 0,
-            eCloseSessionMethod,
-            eVerifyHostMethod,
-            eAuthenticateByPasswordMethod,
-
-            eSetBufferSizeMethod,
-            eSetRequestFromBinaryDataMethod,
-            eSetRequestFromStringMethod,
-            eSendRequestMethod,
-            eExecuteCommandMethod,
-            eGetResponseAsBinaryDataMethod,
-            eGetRespornseAsStringMethod,
-
-            eSetHttpHeadMethod,
-            eAddHttpHeaderMethod,
-            eSetBodyFromBinaryDataMethod,
-            eGetBodyAsBinaryDataMethod,
-    */
     switch(lMethodNum) {
         case eOpenSessionMethod:
             return 2;
@@ -1259,6 +1083,10 @@ long CAddInNative::GetNParams(const long lMethodNum)
             return 0;
         case eAuthenticateByPasswordMethod:
             return 2;
+        case eAuthenticateByKeyMethod:
+            return 1;
+        case eAuthenticateByKeyBase64Method:
+            return 1;
         case eSetBufferSizeMethod:
             return 1;
         case eSetRequestFromBinaryDataMethod:
@@ -1297,42 +1125,9 @@ bool CAddInNative::GetParamDefValue(const long lMethodNum, const long lParamNum,
 { 
 //    TV_VT(pvarParamDefValue)= VTYPE_EMPTY;
     switch(lMethodNum) {
-//        case eOpenSessionMethod:
-//            return false;
-//        case eCloseSessionMethod:
-//            return false;
-//        case eVerifyHostMethod:
-//            return true;
-//        case eAuthenticateByPasswordMethod:
-//            return false;
-//        case eSetBufferSizeMethod:
-//            return false;
-//        case eSetRequestFromBinaryDataMethod:
-//            return true;
-//        case eSetRequestFromStringMethod:
-//            return true;
-//        case eSendRequestMethod:
-//            return true;
-//        case eExecuteCommandMethod:
-//            return true;
-//        case eGetResponseAsBinaryDataMethod:
-//            return true;
-//        case eGetRespornseAsStringMethod:
-//            return true;
-
-//        case eSetHttpHeadMethod:
-//            return true;
-//        case eAddHttpHeaderMethod:
-//            return true;
         case eSetBodyFromBinaryDataMethod:
             TV_VT(pvarParamDefValue)= VTYPE_EMPTY;
             return true;
-//        case eSendHttpRequestMethod:
-//            return true;
-//        case eGetHttpHeaderMethod:
-//            return true;
-//        case eGetBodyAsBinaryDataMethod:
-//            return true;
         default:
             return false;
     };
@@ -1342,25 +1137,6 @@ bool CAddInNative::GetParamDefValue(const long lMethodNum, const long lParamNum,
 //---------------------------------------------------------------------------//
 bool CAddInNative::HasRetVal(const long lMethodNum)
 { 
-    /*
-            eOpenSessionMethod = 0,
-            eCloseSessionMethod,
-            eVerifyHostMethod,
-            eAuthenticateByPasswordMethod,
-
-            eSetBufferSizeMethod,
-            eSetRequestFromBinaryDataMethod,
-            eSetRequestFromStringMethod,
-            eSendRequestMethod,
-            eExecuteCommandMethod,
-            eGetResponseAsBinaryDataMethod,
-            eGetRespornseAsStringMethod,
-
-            eSetHttpHeadMethod,
-            eAddHttpHeaderMethod,
-            eSetBodyFromBinaryDataMethod,
-            eGetBodyAsBinaryDataMethod,
-    */
     switch(lMethodNum) {
         case eOpenSessionMethod:
             return false;
@@ -1369,6 +1145,10 @@ bool CAddInNative::HasRetVal(const long lMethodNum)
         case eVerifyHostMethod:
             return true;
         case eAuthenticateByPasswordMethod:
+            return false;
+        case eAuthenticateByKeyMethod:
+            return false;
+        case eAuthenticateByKeyBase64Method:
             return false;
         case eSetBufferSizeMethod:
             return false;
@@ -1384,7 +1164,6 @@ bool CAddInNative::HasRetVal(const long lMethodNum)
             return true;
         case eGetRespornseAsStringMethod:
             return true;
-
         case eSetHttpHeadMethod:
             return true;
         case eAddHttpHeaderMethod:
@@ -1414,6 +1193,10 @@ bool CAddInNative::CallAsProc(const long lMethodNum,
             return CloseSession();
         case eAuthenticateByPasswordMethod:
             return AuthenticateByPassword(paParams, lSizeArray);
+        case eAuthenticateByKeyMethod:
+            return AuthenticateByKey(paParams, lSizeArray);
+        case eAuthenticateByKeyBase64Method:
+            return AuthenticateByKeyBase64(paParams, lSizeArray);
         case eSetBufferSizeMethod:
             return SetBufferSize(paParams, lSizeArray);
         default:
@@ -1440,7 +1223,6 @@ bool CAddInNative::CallAsFunc(const long lMethodNum,
         case eGetResponseAsBinaryDataMethod:
             return GetResponseAsBinaryData(pvarRetValue, paParams, lSizeArray);
         case eGetRespornseAsStringMethod:
-            //return GetRespornseAsString(pvarRetValue, paParams, lSizeArray);
             return false;
         case eSetHttpHeadMethod:
             return SetHttpRequestHead(pvarRetValue, paParams, lSizeArray);
@@ -1454,9 +1236,6 @@ bool CAddInNative::CallAsFunc(const long lMethodNum,
             return GetHttpHeader(pvarRetValue, paParams, lSizeArray);
         case eGetBodyAsBinaryDataMethod:
             return GetBodyAsBinaryData(pvarRetValue, paParams, lSizeArray);
-
-
-
         default:
             return false;
     };

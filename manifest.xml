@@ -2,5 +2,5 @@
 
 <bundle xmlns="http://v8.1c.ru/8.2/addin/bundle" name="YouComponentName">
 
-<component os="Linux" path="libAddInNative.so" type="native" arch="x86_64" />
+<component os="Linux" path="libSshRestClient.so" type="native" arch="x86_64" />
 </bundle>
