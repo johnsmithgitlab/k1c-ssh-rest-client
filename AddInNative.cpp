@@ -164,6 +164,12 @@ bool CAddInNative::OpenSession(tVariant* paParams, const long lSizeArray)
     int port = paParams[1].intVal;
     char *host = ::conv_wchar16_t_to_char(paParams[0].pwstrVal);
 
+    char *user_name = NULL;
+
+    if (TV_VT(&paParams[2]) == VTYPE_PWSTR && paParams[2].strLen > 0) {
+        user_name = ::conv_wchar16_t_to_char(paParams[2].pwstrVal);
+    }
+
     session = ssh_new();
     if (session == NULL) {
         free(host);
@@ -175,6 +181,11 @@ bool CAddInNative::OpenSession(tVariant* paParams, const long lSizeArray)
     free(host);
     ssh_options_set(session, SSH_OPTIONS_LOG_VERBOSITY, &verbosity);
     ssh_options_set(session, SSH_OPTIONS_PORT, &port);
+
+    if(user_name) {
+        ssh_options_set(session, SSH_OPTIONS_USER, user_name);
+        free(user_name);
+    }
 
     int rc = ssh_connect(session);
     if (rc != SSH_OK) {
@@ -1125,7 +1136,7 @@ long CAddInNative::GetNParams(const long lMethodNum)
 { 
     switch(lMethodNum) {
         case eOpenSessionMethod:
-            return 2;
+            return 3;
         case eCloseSessionMethod:
             return 0;
         case eVerifyHostMethod:
