@@ -1140,7 +1140,7 @@ long CAddInNative::GetNParams(const long lMethodNum)
         case eCloseSessionMethod:
             return 0;
         case eVerifyHostMethod:
-            return 0;
+            return 2;
         case eAuthenticateByPasswordMethod:
             return 2;
         case eAuthenticateByKeyMethod:
