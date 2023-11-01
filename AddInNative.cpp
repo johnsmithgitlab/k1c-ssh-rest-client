@@ -320,16 +320,19 @@ bool CAddInNative::AuthenticateByPassword(tVariant* paParams, const long lSizeAr
 bool CAddInNative::AuthenticateByKey(tVariant* paParams, const long lSizeArray)
 {
     char *key_file_name = ::conv_wchar16_t_to_char(paParams[0].pwstrVal);
-    ssh_key *privkey;
-    char *passphrase = NULL;
+    ssh_key privkey = NULL;
+    int res;
 
     if (TV_VT(&paParams[1]) == VTYPE_PWSTR && paParams[1].strLen > 0) {
-        passphrase = ::conv_wchar16_t_to_char(paParams[1].pwstrVal);
+        char *passphrase = ::conv_wchar16_t_to_char(paParams[1].pwstrVal);
+        res = ssh_pki_import_privkey_file(key_file_name, passphrase, NULL, NULL, &privkey);
+        free(passphrase);
+    }
+    else {
+        res = ssh_pki_import_privkey_file(key_file_name, NULL, NULL, NULL, &privkey);
     }
 
-    int res = ssh_pki_import_privkey_file(key_file_name, passphrase, NULL, NULL, privkey);
-    if(passphrase)
-        free(passphrase);
+    free(key_file_name);
 
     if(res == SSH_EOF) {
         const char *err_str = "The file doesn't exist or permission denied";
@@ -337,7 +340,7 @@ bool CAddInNative::AuthenticateByKey(tVariant* paParams, const long lSizeArray)
         addError(2004, L"LibSSH", werr_str.data(), 2004);
 
         if(privkey != NULL)
-            ssh_key_free(*privkey);
+            ssh_key_free(privkey);
 
         return false;
     }
@@ -348,23 +351,23 @@ bool CAddInNative::AuthenticateByKey(tVariant* paParams, const long lSizeArray)
         addError(2004, L"LibSSH", werr_str.data(), 2004);
 
         if(privkey != NULL)
-            ssh_key_free(*privkey);
+            ssh_key_free(privkey);
 
         return false;
     }
 
-    res = ssh_userauth_publickey(session, NULL, *privkey);
+    res = ssh_userauth_publickey(session, NULL, privkey);
 
     if(res != SSH_AUTH_SUCCESS) {
         const char * err_str = ssh_get_error(session);
-        ssh_key_free(*privkey);
+        ssh_key_free(privkey);
         std::wstring werr_str = std::wstring(err_str, err_str + strlen(err_str));
         addError(2004, L"LibSSH", werr_str.data(), 2004);
         ::disconnect_ssh_session(session);
         return false;
     }
 
-    ssh_key_free(*privkey);
+    ssh_key_free(privkey);
     return true;
 }
 //---------------------------------------------------------------------------//
@@ -374,17 +377,17 @@ bool CAddInNative::AuthenticateByKeyBase64(tVariant* paParams, const long lSizeA
     char *key_buff = (char *)malloc(paParams[0].strLen + 1);
     memcpy(key_buff, paParams[0].pstrVal, paParams[0].strLen);
     key_buff[paParams[0].strLen] = 0;
-
-    char *passphrase = NULL;
+    int res;
 
     if (TV_VT(&paParams[1]) == VTYPE_PWSTR && paParams[1].strLen > 0) {
-        passphrase = ::conv_wchar16_t_to_char(paParams[1].pwstrVal);
-    }
-
-    int res = ssh_pki_import_privkey_base64(key_buff, passphrase, NULL, NULL, &privkey);
-    free(key_buff);
-    if(passphrase)
+        char *passphrase = ::conv_wchar16_t_to_char(paParams[1].pwstrVal);
+        res = ssh_pki_import_privkey_base64(key_buff, passphrase, NULL, NULL, &privkey);
         free(passphrase);
+    }
+    else {
+        res = ssh_pki_import_privkey_base64(key_buff, NULL, NULL, NULL, &privkey);
+    }
+    free(key_buff);
 
     if(res != SSH_OK) {
         const char *err_str = "Error importing key";
