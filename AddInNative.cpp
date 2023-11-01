@@ -173,6 +173,8 @@ bool CAddInNative::OpenSession(tVariant* paParams, const long lSizeArray)
     session = ssh_new();
     if (session == NULL) {
         free(host);
+        if(user_name)
+            free(user_name);
         addError(2001, L"LibSSH", L"Cannot create session object", 2001);
         return false;
     }
@@ -319,8 +321,15 @@ bool CAddInNative::AuthenticateByKey(tVariant* paParams, const long lSizeArray)
 {
     char *key_file_name = ::conv_wchar16_t_to_char(paParams[0].pwstrVal);
     ssh_key *privkey;
+    char *passphrase = NULL;
 
-    int res = ssh_pki_import_privkey_file(key_file_name, NULL, NULL, NULL, privkey);
+    if (TV_VT(&paParams[1]) == VTYPE_PWSTR && paParams[1].strLen > 0) {
+        passphrase = ::conv_wchar16_t_to_char(paParams[1].pwstrVal);
+    }
+
+    int res = ssh_pki_import_privkey_file(key_file_name, passphrase, NULL, NULL, privkey);
+    if(passphrase)
+        free(passphrase);
 
     if(res == SSH_EOF) {
         const char *err_str = "The file doesn't exist or permission denied";
@@ -366,8 +375,16 @@ bool CAddInNative::AuthenticateByKeyBase64(tVariant* paParams, const long lSizeA
     memcpy(key_buff, paParams[0].pstrVal, paParams[0].strLen);
     key_buff[paParams[0].strLen] = 0;
 
-    int res = ssh_pki_import_privkey_base64(key_buff, NULL, NULL, NULL, &privkey);
+    char *passphrase = NULL;
+
+    if (TV_VT(&paParams[1]) == VTYPE_PWSTR && paParams[1].strLen > 0) {
+        passphrase = ::conv_wchar16_t_to_char(paParams[1].pwstrVal);
+    }
+
+    int res = ssh_pki_import_privkey_base64(key_buff, passphrase, NULL, NULL, &privkey);
     free(key_buff);
+    if(passphrase)
+        free(passphrase);
 
     if(res != SSH_OK) {
         const char *err_str = "Error importing key";
@@ -1144,9 +1161,9 @@ long CAddInNative::GetNParams(const long lMethodNum)
         case eAuthenticateByPasswordMethod:
             return 2;
         case eAuthenticateByKeyMethod:
-            return 1;
+            return 2;
         case eAuthenticateByKeyBase64Method:
-            return 1;
+            return 2;
         case eSetBufferSizeMethod:
             return 1;
         case eSetRequestFromBinaryDataMethod:
